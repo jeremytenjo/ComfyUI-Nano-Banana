@@ -22,7 +22,7 @@ class NanoBananaProImage:
         "https://generativelanguage.googleapis.com/v1beta/"
         "models/gemini-3-pro-image-preview:generateContent"
     )
-    _CACHE: dict[tuple[str, str, str, str, str], torch.Tensor] = {}
+    _CACHE: dict[tuple[str, str, str, str], torch.Tensor] = {}
     _ASPECT_RATIO_LABELS = (
         "1:1 (1024x1024)",
         "2:3 (832x1248)",
@@ -62,13 +62,6 @@ class NanoBananaProImage:
             },
             "optional": {
                 "image": ("IMAGE",),
-                "image_name": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "multiline": False,
-                    },
-                ),
             },
         }
 
@@ -84,11 +77,9 @@ class NanoBananaProImage:
         size: str = "9:16 (768x1344)",
         resolution: str = "1K",
         image: torch.Tensor | None = None,
-        image_name: str = "",
     ):
         api_key = (api_key or "").strip()
         prompt = (prompt or "").strip()
-        image_name = (image_name or "").strip()
         size = (size or "9:16 (768x1344)").strip()
         aspect_ratio = size.split(" ", 1)[0]
         resolution = (resolution or "1K").strip().upper()
@@ -103,7 +94,7 @@ class NanoBananaProImage:
             raise ValueError(f"resolution must be one of {', '.join(self._RESOLUTIONS)}")
 
         image_size = self._get_image_size(image)
-        cache_key = (image_name, image_size, prompt, aspect_ratio, resolution)
+        cache_key = (image_size, prompt, aspect_ratio, resolution)
         cached = self._CACHE.get(cache_key)
         if cached is not None:
             return (cached.clone(),)

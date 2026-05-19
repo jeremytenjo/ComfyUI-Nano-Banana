@@ -109,7 +109,7 @@ class NanoBananaProImage:
                 api_key=api_key,
                 prompt=single_prompt,
                 aspect_ratio=aspect_ratio,
-                resolution=resolution,
+                image_size=resolution,
                 input_image_part=input_image_part,
             )
             self._CACHE[cache_key] = image_tensor.clone()
@@ -137,7 +137,7 @@ class NanoBananaProImage:
         api_key: str,
         prompt: str,
         aspect_ratio: str,
-        resolution: str,
+        image_size: str,
         input_image_part: dict[str, Any] | None,
     ) -> torch.Tensor:
         parts: list[dict[str, Any]] = []
@@ -148,12 +148,10 @@ class NanoBananaProImage:
         payload = {
             "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {
-                "responseModalities": ["IMAGE"],
-                "responseFormat": {
-                    "image": {
-                        "aspectRatio": aspect_ratio,
-                        "imageSize": resolution,
-                    }
+                "responseModalities": ["TEXT", "IMAGE"],
+                "imageConfig": {
+                    "aspectRatio": aspect_ratio,
+                    "imageSize": image_size,
                 },
             },
         }

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class NanoBananaProImage:
-    """Generate an image from a prompt using Gemini Nano Banana Pro."""
+    """Generate image(s) from prompt text using Gemini Nano Banana Pro."""
 
     API_URL = (
         "https://generativelanguage.googleapis.com/v1beta/"
@@ -86,7 +86,8 @@ class NanoBananaProImage:
 
         if not api_key:
             raise ValueError("api_key is required")
-        if not prompt:
+        prompts = self._split_prompts(prompt)
+        if not prompts:
             raise ValueError("prompt is required")
         if aspect_ratio not in self._ASPECT_RATIOS:
             raise ValueError(f"size must be one of {', '.join(self._ASPECT_RATIO_LABELS)}")
@@ -94,31 +95,58 @@ class NanoBananaProImage:
             raise ValueError(f"resolution must be one of {', '.join(self._RESOLUTIONS)}")
 
         image_size = self._get_image_size(image)
-        cache_key = (image_size, prompt, aspect_ratio, resolution)
-        cached = self._CACHE.get(cache_key)
-        if cached is not None:
-            return (cached.clone(),)
+        input_image_part = self._build_input_image_part(image)
+        output_images: list[torch.Tensor] = []
 
-        parts: list[dict[str, Any]] = []
-        if image is not None:
-            image_bytes = self._comfy_tensor_to_png_bytes(image)
-            parts.append(
-                {
-                    "inlineData": {
-                        "mimeType": "image/png",
-                        "data": base64.b64encode(image_bytes).decode("utf-8"),
-                    }
-                }
+        for single_prompt in prompts:
+            cache_key = (image_size, single_prompt, aspect_ratio, resolution)
+            cached = self._CACHE.get(cache_key)
+            if cached is not None:
+                output_images.append(cached.clone())
+                continue
+
+            image_tensor = self._generate_single(
+                api_key=api_key,
+                prompt=single_prompt,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
+                input_image_part=input_image_part,
             )
+            self._CACHE[cache_key] = image_tensor.clone()
+            output_images.append(image_tensor)
+
+        return (torch.cat(output_images, dim=0),)
+
+    @staticmethod
+    def _split_prompts(prompt_text: str) -> list[str]:
+        return [part.strip() for part in prompt_text.split("**") if part.strip()]
+
+    def _build_input_image_part(self, image: torch.Tensor | None) -> dict[str, Any] | None:
+        if image is None:
+            return None
+        image_bytes = self._comfy_tensor_to_png_bytes(image)
+        return {
+            "inlineData": {
+                "mimeType": "image/png",
+                "data": base64.b64encode(image_bytes).decode("utf-8"),
+            }
+        }
+
+    def _generate_single(
+        self,
+        api_key: str,
+        prompt: str,
+        aspect_ratio: str,
+        resolution: str,
+        input_image_part: dict[str, Any] | None,
+    ) -> torch.Tensor:
+        parts: list[dict[str, Any]] = []
+        if input_image_part is not None:
+            parts.append(input_image_part)
         parts.append({"text": prompt})
 
         payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": parts,
-                }
-            ],
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {
                 "responseModalities": ["IMAGE"],
                 "responseFormat": {
@@ -153,9 +181,7 @@ class NanoBananaProImage:
             raise RuntimeError("Nano Banana API returned invalid JSON") from exc
 
         image_bytes = self._extract_first_image_bytes(data)
-        image_tensor = self._bytes_to_comfy_tensor(image_bytes)
-        self._CACHE[cache_key] = image_tensor.clone()
-        return (image_tensor,)
+        return self._bytes_to_comfy_tensor(image_bytes)
 
     @staticmethod
     def _extract_error_message(response: requests.Response) -> str:
